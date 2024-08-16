@@ -1,8 +1,9 @@
 #![feature(slice_swap_unchecked)]
 
 use std::ops::Sub;
+use std::path::Path;
 
-use anyhow::{Ok, Result};
+use anyhow::{anyhow, Ok, Result};
 
 use image::imageops::thumbnail;
 use image::io::Reader as ImageReader;
@@ -15,86 +16,6 @@ use ordered_float::NotNan;
 
 mod utils;
 
-// /// It is recommened to use [`quick_select_val`] instead if T implement [`Copy`] and
-// /// the [size of](std::mem::size_of()) `T` is less than the size of `&T`.
-// fn quick_select_ref<'a, T: Ord>(
-//     x: &[&'a T],
-//     k: usize,
-//     mut get_pivot: impl for<'b> FnMut(&[&'b T]) -> &'b T,
-// ) -> &'a T {
-//     if x.len() == 1 {
-//         assert_eq!(k, 0);
-//         return x.first().unwrap();
-//     }
-
-//     let pivot = get_pivot(x);
-
-//     let mut lessers = Vec::new();
-//     let mut greaters = Vec::new();
-//     let mut equal_count = 0;
-
-//     for &x in x {
-//         match x.cmp(pivot) {
-//             std::cmp::Ordering::Less => lessers.push(x),
-//             std::cmp::Ordering::Equal => equal_count += 1,
-//             std::cmp::Ordering::Greater => greaters.push(x),
-//         }
-//     }
-
-//     if k < lessers.len() {
-//         quick_select_ref(&lessers, k, get_pivot)
-//     } else if k < lessers.len() + equal_count {
-//         pivot
-//     } else {
-//         quick_select_ref(&greaters, k - lessers.len() - equal_count, get_pivot)
-//     }
-// }
-
-// fn quick_select_val<T: Ord + Copy>(x: &[T], k: usize, get_pivot: impl Fn(&[T]) -> T) -> T {
-//     if x.len() == 1 {
-//         assert_eq!(k, 0);
-//         return x.first().copied().unwrap();
-//     }
-
-//     let pivot = get_pivot(x);
-
-//     let mut lessers = Vec::new();
-//     let mut greaters = Vec::new();
-//     let mut equal_count = 0;
-
-//     for &x in x {
-//         match x.cmp(&pivot) {
-//             std::cmp::Ordering::Less => lessers.push(x),
-//             std::cmp::Ordering::Equal => equal_count += 1,
-//             std::cmp::Ordering::Greater => greaters.push(x),
-//         }
-//     }
-
-//     if k < lessers.len() {
-//         quick_select_val(&lessers, k, get_pivot)
-//     } else if k < lessers.len() + equal_count {
-//         pivot
-//     } else {
-//         quick_select_val(&greaters, k - lessers.len() - equal_count, get_pivot)
-//     }
-// }
-
-// fn median<T: Ord + Copy>(x: &[T]) -> T {
-//     quick_select_val(x, x.len() / 2, |x| x[x.len() / 2])
-// }
-
-// fn find_peaks_indices(x: &[f32]) -> Vec<usize> {
-//     let mut peaks = Vec::new();
-
-//     let max = x.len() - 1;
-//     for i in 1..max {
-//         if x[i - 1] < x[i] && x[i] > x[i + 1] {
-//             peaks.push(i);
-//         }
-//     }
-
-//     peaks
-// }
 fn find_peaks_indices<S, T>(x: &ArrayBase<S, Ix1>) -> Vec<usize>
 where
     S: ndarray::Data<Elem = T>,
@@ -142,9 +63,6 @@ where
 }
 
 use utils::get_median;
-
-use crate::utils::Median;
-
 // fn median<S, T>(x: &ArrayBase<S, Ix1>) -> T
 // where
 //     S: ndarray::Data<Elem = T>,
@@ -165,12 +83,50 @@ fn median(x: &mut [usize]) -> usize {
 }
 
 fn main() -> Result<()> {
-    let a = ImageReader::open("sandbox/690292005999224951.png")?.decode()?;
+    let paths = std::fs::read_dir(".").expect("Failed to read current directory");
+    std::fs::create_dir_all("./pixelized").expect("Failed to create output directory");
+    for path in paths {
+        let path = path.unwrap().path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(ext) = path.extension().and_then(|ext| ext.to_str()) else {
+            continue;
+        };
+        let ext = ext.to_ascii_lowercase();
+        if !matches!(ext.as_str(), "png" | "jpg" | "jpeg") {
+            continue;
+        }
+
+        let input_file = path.file_name().unwrap().to_str().unwrap();
+        let output_file = format!("pixelized/{}", input_file);
+
+        println!("Processing {}", input_file);
+        if let Err(err) = operate_on(input_file, &output_file) {
+            println!("Error: {:?}", err);
+            println!("Skipping...");
+        } else {
+            println!("Saved to {}", output_file);
+        }
+        println!();
+    }
+    Ok(())
+}
+
+fn operate_on(input_file: impl AsRef<Path>, output_file: impl AsRef<Path>) -> Result<()> {
+    let input_file = input_file.as_ref();
+    let output_file = output_file.as_ref();
+
+    let a = ImageReader::open(input_file)?.decode()?;
 
     if let Some(im) = a.as_rgb8() {
-        println!("Image is RGB8");
+        // println!("Image is RGB8");
         let data = im.ref_ndarray3(); // 3xHxW
-        println!("{:?}", data.dim());
+                                      // println!("Channels: {}", data.dim().0);
+                                      // println!("Height: {}", data.dim().1);
+                                      // println!("Width: {}", data.dim().2);
+                                      // println!("{:?}", data.dim());
+
         let width = data.dim().2;
         let height = data.dim().1;
 
@@ -238,14 +194,26 @@ fn main() -> Result<()> {
 
         let pixel_size = gcd(hsize, vsize);
 
-        println!("pixel size: {}", pixel_size);
-        assert!(width % pixel_size == 0);
-        assert!(height % pixel_size == 0);
+        println!("Predicted pixel size: {}", pixel_size);
+        if !(width % pixel_size == 0) {
+            return Err(anyhow!(
+                "width {} not divisible by pixel size {}",
+                width,
+                pixel_size
+            ));
+        }
+        if !(height % pixel_size == 0) {
+            return Err(anyhow!(
+                "height {} not divisible by pixel size {}",
+                height,
+                pixel_size
+            ));
+        }
 
         let new_width = width / pixel_size;
         let new_height = height / pixel_size;
 
-        thumbnail(im, new_width as u32, new_height as u32).save("sandbox/direct.png")?;
+        thumbnail(im, new_width as u32, new_height as u32).save(output_file)?;
     }
 
     Ok(())

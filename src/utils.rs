@@ -1,5 +1,8 @@
 use std::ops::{Add, Div};
 
+use alg_quickselect::{get_pivot, quickselect, quickselect_unchecked};
+use not_empty::NonEmptySlice;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Median<T> {
     Odd(T),
@@ -33,40 +36,42 @@ impl<T> Median<T> {
 
 pub(crate) fn get_median<T: Ord + Clone>(arr: &mut NonEmptySlice<T>) -> Median<T> {
     let k = arr.len().get() / 2;
-    let get_pivot = |s: &NonEmptySlice<T>| median_of_three::<T>(s); //|arr: &[T]| -> usize { arr.len() / 2 };
+    // let get_pivot = |s: &NonEmptySlice<T>| median_of_three::<T>(s); //|arr: &[T]| -> usize { arr.len() / 2 };
 
     if arr.len().get() % 2 == 0 {
-        let smaller = unsafe { quickselect_unchecked(arr, k - 1, get_pivot.clone()) }.clone();
-        let bigger = unsafe { quickselect_unchecked(arr, k, get_pivot) }.clone();
+        let smaller =
+            unsafe { quickselect_unchecked(arr, k - 1, get_pivot::median_of_three) }.clone();
+        let bigger = unsafe { quickselect_unchecked(arr, k, get_pivot::median_of_three) }.clone();
         Median::Even(smaller, bigger)
     } else {
-        let median = unsafe { quickselect_unchecked(arr, k, get_pivot) }.clone();
+        let median = unsafe { quickselect_unchecked(arr, k, get_pivot::median_of_three) }.clone();
         Median::Odd(median)
     }
 }
 
-fn median_of_three<T: Ord>(arr: &[T]) -> usize {
-    let len = arr.len();
-    let mid = len / 2;
-    let first = &arr[0];
-    let middle = &arr[mid];
-    let last = &arr[len - 1];
+// fn median_of_three<T: Ord>(arr: &[T]) -> usize {
+//     let len = arr.len();
+//     let mid = len / 2;
+//     let first = &arr[0];
+//     let middle = &arr[mid];
+//     let last = &arr[len - 1];
 
-    if (first <= middle && middle <= last) || (last <= middle && middle <= first) {
-        mid
-    } else if (middle <= first && first <= last) || (last <= first && first <= middle) {
-        0
-    } else {
-        len - 1
-    }
-}
+//     if (first <= middle && middle <= last) || (last <= middle && middle <= first) {
+//         mid
+//     } else if (middle <= first && first <= last) || (last <= first && first <= middle) {
+//         0
+//     } else {
+//         len - 1
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fmt::Debug;
     fn quickselect<T: Ord + Debug>(arr: &mut NonEmptySlice<T>, k: usize) -> &T {
-        super::quickselect(arr, k, |arr| arr.len().get() - 1)
+        // don't use the unchecked version, we need it to panic
+        super::quickselect(arr, k, get_pivot::last_index)
     }
 
     fn neslice<T>(arr: &mut [T]) -> &mut NonEmptySlice<T> {
